@@ -2,7 +2,9 @@ from fastapi import UploadFile
 import cv2
 import tempfile
 import os
+import numpy as np
 from services.yolo_model import model
+from utils.ocr_utils import extract_text_from_plate
 
 async def process_video(file: UploadFile) -> bytes:
     # Save uploaded file to temp file
@@ -27,10 +29,24 @@ async def process_video(file: UploadFile) -> bytes:
         if not ret:
             break
 
-        # Run YOLO detection and draw boxes
+        # YOLO detection
         results = model(frame)
-        result_frame = results[0].plot()
-        out.write(result_frame)
+
+        for result in results:
+            for box in result.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                # Crop plate
+                plate_img = frame[y1:y2, x1:x2]
+
+                # OCR
+                text = extract_text_from_plate(plate_img)
+
+                # Draw bounding box and OCR text
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, text, (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2)
+
+        out.write(frame)
 
     cap.release()
     out.release()

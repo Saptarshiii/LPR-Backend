@@ -1,36 +1,28 @@
 import cv2
-import time
 from services.yolo_model import model
+from utils.ocr_utils import extract_text_from_plate
 
-def generate_live_video():
-    cap = cv2.VideoCapture(1)  # Default webcam
+def generate_live_feed():
+    cap = cv2.VideoCapture(0)  # Use appropriate index or URL
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-    if not cap.isOpened():
-        raise RuntimeError("Webcam not accessible")
+        results = model(frame)
 
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
+        for result in results:
+            for box in result.boxes:
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
+                plate_img = frame[y1:y2, x1:x2]
+                text = extract_text_from_plate(plate_img)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                cv2.putText(frame, text, (x1, max(y1 - 10, 0)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.9, (36, 255, 12), 2)
 
-            # Run YOLO and draw results
-            results = model(frame)
-            result_frame = results[0].plot()
+        _, buffer = cv2.imencode('.jpg', frame)
+        frame_bytes = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
-            # Encode frame to JPEG
-            ret, jpeg = cv2.imencode('.jpg', result_frame)
-            if not ret:
-                continue
-
-            frame_bytes = jpeg.tobytes()
-
-            # Yield MJPEG frame
-            yield (
-                b"--frame\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-            )
-
-            time.sleep(0.03)  # Optional: adjust frame rate
-    finally:
-        cap.release()
+    cap.release()
